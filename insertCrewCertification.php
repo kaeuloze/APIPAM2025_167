@@ -1,7 +1,9 @@
 <?php
 // ====== CONFIG DEBUG (matikan kalau sudah production) ======
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+// PENTING: jangan tampilkan error ke output JSON
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
 
 header("Content-Type: application/json");
 header("Access-Control-Allow-Origin: *");
@@ -14,7 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
-// Include database.php (di folder yang sama)
+// Include database.php
 $db_file = __DIR__ . '/database.php';
 if (!file_exists($db_file)) {
     http_response_code(500);
@@ -42,7 +44,7 @@ $raw = file_get_contents("php://input");
 $input = json_decode($raw, true);
 
 if (!is_array($input) || empty($input)) {
-    $input = $_POST; // fallback form-data / x-www-form-urlencoded
+    $input = $_POST;
 }
 
 if (!is_array($input) || empty($input)) {
@@ -50,21 +52,16 @@ if (!is_array($input) || empty($input)) {
     echo json_encode([
         "success" => false,
         "message" => "Invalid input",
-        "debug" => [
-            "raw" => $raw,
-            "post" => $_POST
-        ]
+        "debug" => ["raw" => $raw, "post" => $_POST]
     ]);
     exit;
 }
 
-// Helper get value
 function getv($arr, $key, $default = "") {
     return isset($arr[$key]) ? trim((string)$arr[$key]) : $default;
 }
 
-// ====== Ambil field CREW_CERTIFICATION ======
-$crew_cert_id       = (int) getv($input, "crew_cert_id", "0");
+// ====== Ambil field (TANPA crew_cert_id karena auto increment) ======
 $crew_id            = (int) getv($input, "crew_id", "0");
 $certification_id   = (int) getv($input, "certification_id", "0");
 $nama_sertifikasi   = getv($input, "nama_sertifikasi");
@@ -73,22 +70,20 @@ $tanggal_terbit     = getv($input, "tanggal_terbit");      // YYYY-MM-DD
 $tanggal_kadaluarsa = getv($input, "tanggal_kadaluarsa");  // YYYY-MM-DD
 $status             = getv($input, "status");
 
-// ====== Validasi required fields ======
+// ====== Validasi ======
 if ($crew_id <= 0) {
     http_response_code(400);
     echo json_encode(["success" => false, "message" => "Field crew_id is required"]);
     exit;
 }
+
 if ($certification_id <= 0) {
     http_response_code(400);
     echo json_encode(["success" => false, "message" => "Field certification_id is required"]);
     exit;
 }
 
-$required = [
-    "crew_cert_id    "   => $crew_cert_id,
-    "crew_id"            => $crew_id,
-    "certification_id"   => $certification_id,
+$requiredStrings = [
     "nama_sertifikasi"   => $nama_sertifikasi,
     "kru"                => $kru,
     "tanggal_terbit"     => $tanggal_terbit,
@@ -96,7 +91,7 @@ $required = [
     "status"             => $status
 ];
 
-foreach ($required as $field => $value) {
+foreach ($requiredStrings as $field => $value) {
     if ($value === "") {
         http_response_code(400);
         echo json_encode(["success" => false, "message" => "Field $field is required"]);
@@ -104,7 +99,7 @@ foreach ($required as $field => $value) {
     }
 }
 
-// ====== Validasi format tanggal YYYY-MM-DD ======
+// Validasi format tanggal
 if (!preg_match("/^\d{4}-\d{2}-\d{2}$/", $tanggal_terbit)) {
     http_response_code(400);
     echo json_encode(["success" => false, "message" => "tanggal_terbit harus format YYYY-MM-DD"]);
@@ -119,8 +114,8 @@ if (!preg_match("/^\d{4}-\d{2}-\d{2}$/", $tanggal_kadaluarsa)) {
 
 try {
     $sql = "INSERT INTO crew_certification
-            (crew_cert_id, crew_id, certification_id, nama_sertifikasi, kru, tanggal_terbit, tanggal_kadaluarsa, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+            (crew_id, certification_id, nama_sertifikasi, kru, tanggal_terbit, tanggal_kadaluarsa, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)";
 
     $stmt = $conn->prepare($sql);
     if (!$stmt) {
@@ -129,9 +124,9 @@ try {
         exit;
     }
 
+    // 2 int + 5 string = "iisssss" (TOTAL 7 PARAMS)
     $stmt->bind_param(
         "iisssss",
-        $crew_cert_id,
         $crew_id,
         $certification_id,
         $nama_sertifikasi,
@@ -145,7 +140,7 @@ try {
         echo json_encode([
             "success" => true,
             "message" => "Data sertifikasi kru berhasil ditambahkan",
-            "insert_id" => $conn->insert_id
+            "crew_cert_id" => $conn->insert_id
         ]);
     } else {
         http_response_code(500);
@@ -165,4 +160,3 @@ try {
 }
 
 $conn->close();
-?>
